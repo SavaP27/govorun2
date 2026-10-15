@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="green">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ГОВОРУН // терминал связи</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+/* ══ цветовые темы ══ */
+:root{--tw:none}
+[data-theme=green]{--rgb:62,255,118;--bg:#020a04}
+[data-theme=amber]{--rgb:255,176,0;--bg:#0c0700}
+[data-theme=cyan]{--rgb:84,230,255;--bg:#02090c}
+[data-theme=white]{--rgb:224,224,224;--bg:#060606}
+body.glow{--tw:0 0 7px rgba(var(--rgb),.5)}
+
+*{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
+body{background:var(--bg);color:rgb(var(--rgb));
+ font:400 14px/1.55 'IBM Plex Mono',monospace;min-height:100vh;padding:16px 10px}
+
+.crt{position:fixed;inset:0;z-index:60;pointer-events:none;
+ background:repeating-linear-gradient(0deg,rgba(0,0,0,.25) 0 1px,transparent 1px 3px)}
+.crt::after{content:'';position:absolute;inset:0;
+ background:radial-gradient(ellipse at center,transparent 58%,rgba(0,0,0,.5))}
+body.noscan .crt{display:none}
+
+.term{max-width:1080px;margin:0 auto;border:1px solid rgba(var(--rgb),.5);
+ background:rgba(var(--rgb),.02);text-shadow:var(--tw);
+ box-shadow:0 0 46px rgba(var(--rgb),.12),inset 0 0 90px rgba(var(--rgb),.045)}
+.thead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+ padding:12px 16px;border-bottom:1px solid rgba(var(--rgb),.35)}
+.tlogo{font-weight:700;letter-spacing:.22em;font-size:15px}
+.tlogo span{color:rgba(var(--rgb),.5);font-weight:400;font-size:12px}
+.blink{animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.tstatus{display:flex;align-items:center;gap:9px;font-size:12.5px;color:rgba(var(--rgb),.75)}
+.sdot{width:9px;height:9px;border-radius:50%;background:rgb(var(--rgb));
+ box-shadow:0 0 9px rgb(var(--rgb));animation:pulse 1.2s infinite}
+.sdot.off{background:transparent;border:1px solid rgba(var(--rgb),.5);box-shadow:none;animation:none}
+@keyframes pulse{50%{opacity:.35}}
+.tsep{opacity:.35}
+
+.ttabs{display:flex;flex-wrap:wrap;border-bottom:1px solid rgba(var(--rgb),.35)}
+.ttabs button{background:none;border:none;border-right:1px solid rgba(var(--rgb),.2);
+ color:rgba(var(--rgb),.7);font:500 13px 'IBM Plex Mono',monospace;letter-spacing:.08em;
+ padding:11px 16px;cursor:pointer;transition:.15s}
+.ttabs button:hover{background:rgba(var(--rgb),.1);color:rgb(var(--rgb))}
+.ttabs button.on{background:rgb(var(--rgb));color:var(--bg);font-weight:700;text-shadow:none}
+
+.tbody{padding:16px;min-height:440px}
+.tab{display:none;animation:tin .22s ease}
+.tab.on{display:block}
+@keyframes tin{from{opacity:0;transform:translateY(6px)}}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px;align-items:start}
+
+.win{border:1px solid rgba(var(--rgb),.4);background:rgba(var(--rgb),.025)}
+.winbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+ padding:7px 12px;border-bottom:1px solid rgba(var(--rgb),.3);background:rgba(var(--rgb),.1);
+ font:700 11.5px 'IBM Plex Mono',monospace;letter-spacing:.14em;text-transform:uppercase}
+.winbtns{opacity:.55;letter-spacing:.2em}
+.pad{padding:16px;display:flex;flex-direction:column;gap:12px}
+
+input,textarea{width:100%;background:transparent;border:1px solid rgba(var(--rgb),.4);
+ color:rgb(var(--rgb));font:400 14px 'IBM Plex Mono',monospace;padding:9px 11px;outline:none;
+ caret-color:rgb(var(--rgb));transition:.15s}
+input:focus,textarea:focus{border-color:rgb(var(--rgb));
+ box-shadow:0 0 10px rgba(var(--rgb),.25),inset 0 0 8px rgba(var(--rgb),.06)}
+input::placeholder,textarea::placeholder{color:rgba(var(--rgb),.35)}
+textarea{resize:vertical;min-height:90px}
+.tbtn{background:transparent;border:1px solid rgba(var(--rgb),.55);color:rgb(var(--rgb));
+ font:700 13px 'IBM Plex Mono',monospace;letter-spacing:.06em;padding:9px 16px;cursor:pointer;
+ transition:.15s;text-shadow:inherit}
+.tbtn:hover{background:rgba(var(--rgb),.14);box-shadow:0 0 12px rgba(var(--rgb),.25)}
+.tbtn:active{transform:translateY(1px)}
+.tbtn:disabled{opacity:.5;cursor:not-allowed}
+.tbtn.wide{width:100%}
+.tbtn.sm{padding:4px 9px;font-size:12px}
+.tbtn.danger{border-color:rgba(255,90,90,.7);color:#ff8585;text-shadow:none}
+.tbtn.danger:hover{background:rgba(255,90,90,.12)}
+.rowbtns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.rowbtns input{flex:1;min-width:90px}
+.pr{font-size:12px;color:rgba(var(--rgb),.6);letter-spacing:.08em}
+.dim{color:rgba(var(--rgb),.5);font-size:12.5px}
+.hint{font-size:12px;color:rgba(var(--rgb),.45)}
+/* ══ чат ══ */
+.joinbox{padding:20px;display:flex;flex-direction:column;gap:10px;max-width:540px}
+.msgs{height:min(50vh,460px);min-height:280px;overflow-y:auto;padding:14px;
+ border-bottom:1px solid rgba(var(--rgb),.3)}
+.mline{padding:2.5px 0;word-break:break-word;white-space:pre-wrap}
+.ts{color:rgba(var(--rgb),.4)}
+.nm{font-weight:700}
+.nm.self{background:rgba(var(--rgb),.18);padding:0 5px}
+.sysx{color:rgba(var(--rgb),.55)}
+.inrow{display:flex;gap:10px;align-items:center;padding:10px 14px}
+.inrow input{flex:1;border:none;border-bottom:1px solid rgba(var(--rgb),.45);padding:6px 2px}
+.inrow input:focus{box-shadow:none;border-bottom-color:rgb(var(--rgb))}
+.prmt{font-weight:700}
+.tline{padding:3px 14px;font-size:12.5px;color:rgba(var(--rgb),.55);min-height:22px}
+.encrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:5px 0;padding-left:14px}
+.encrow input{width:160px;padding:5px 8px;font-size:13px}
+.enc-err{color:#ff8585;font-size:12px}
+.encrow img{max-width:280px;max-height:220px;display:block;border:1px solid rgba(var(--rgb),.4);margin-top:6px}
+.dl{color:rgb(var(--rgb));font-size:12.5px}
+
+.bigcode{font-size:clamp(20px,4vw,30px);font-weight:700;letter-spacing:.3em;padding:6px 0}
+.bigcode.dim{opacity:.4}
+
+.clist{display:flex;flex-direction:column}
+.crow{display:flex;align-items:center;gap:10px;padding:9px 0;
+ border-bottom:1px dashed rgba(var(--rgb),.25)}
+.cname{font-weight:700}
+.leader{flex:1;border-bottom:1px dotted rgba(var(--rgb),.3);min-width:20px}
+.ccode{letter-spacing:.18em}
+
+.themes{flex-direction:row;flex-wrap:wrap;gap:10px}
+.thbtn{background:transparent;border:1px solid currentColor;
+ font:700 12.5px 'IBM Plex Mono',monospace;padding:10px 14px;cursor:pointer;
+ display:flex;align-items:center;gap:9px;transition:.15s;text-shadow:none}
+.thbtn::before{content:'';width:12px;height:12px;background:currentColor;box-shadow:0 0 8px currentColor}
+.thbtn[data-th=green]{color:#3eff76}
+.thbtn[data-th=amber]{color:#ffb000}
+.thbtn[data-th=cyan]{color:#54e6ff}
+.thbtn[data-th=white]{color:#e0e0e0}
+.thbtn:hover{background:rgba(var(--rgb),.1)}
+.thbtn.on{background:rgb(var(--rgb));color:var(--bg)!important;border-color:rgb(var(--rgb))}
+.thbtn.on::before{box-shadow:none}
+.chk{display:flex;align-items:center;gap:10px;cursor:pointer;padding:4px 0;font-size:13.5px}
+.chk input{width:auto;accent-color:rgb(var(--rgb));transform:scale(1.3)}
+
+/* ══ змейка ══ */
+#snCv{width:100%;max-width:430px;aspect-ratio:1;display:block;margin:0 auto;
+ border:1px solid rgba(var(--rgb),.45);background:rgba(0,0,0,.4);touch-action:none;
+ box-shadow:inset 0 0 30px rgba(var(--rgb),.08)}
+.snpad{display:grid;grid-template-columns:repeat(3,64px);gap:6px;justify-content:center;margin:0 auto}
+.snbtn{width:64px;height:46px;padding:0;font-size:16px}
+.bigsm{font-weight:700;letter-spacing:.15em}
+
+.tfoot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 16px;
+ border-top:1px solid rgba(var(--rgb),.35);font-size:12px;color:rgba(var(--rgb),.6)}
+#toasts{position:fixed;right:14px;bottom:14px;display:flex;flex-direction:column;gap:8px;z-index:80}
+.toast{background:var(--bg);border:1px solid rgb(var(--rgb));padding:9px 14px;font-size:13px;
+ box-shadow:0 0 18px rgba(var(--rgb),.3);animation:tin .2s;max-width:320px}
+.toast.err{border-color:#ff8585;color:#ff9b9b;box-shadow:0 0 18px rgba(255,90,90,.25)}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(var(--rgb),.3)}
+::selection{background:rgb(var(--rgb));color:var(--bg)}
+
+@media(max-width:760px){
+ body{padding:5px}
+ .ttabs{overflow-x:auto;flex-wrap:nowrap}
+ .ttabs button{padding:10px 12px;font-size:12px;white-space:nowrap}
+ .tbody{padding:10px}
+ .thead{padding:10px 12px}
+ .inrow{flex-wrap:wrap}
+}
+</style>
+</head>
+<body class="glow">
+<div class="crt"></div>
+<div class="term">
+  <header class="thead">
+    <div class="tlogo">▚ ГОВОРУН <span>v1.1</span><span class="blink">▮</span></div>
+    <div class="tstatus">
+      <span id="statusDot" class="sdot off"></span><span id="statusTxt">линия свободна</span>
+      <span class="tsep">│</span><span id="clock">00:00:00</span>
+    </div>
+  </header>
+
+  <nav class="ttabs">
+    <button data-tab="chat" class="on">[чаты]</button>
+    <button data-tab="cipher">[шифр фото]</button>
+    <button data-tab="settings">[настройки]</button>
+    <button data-tab="codes">[коды]</button>
+    <button data-tab="contacts">[контакты]</button>
+    <button data-tab="snake">[змейка]</button>
+  </nav>
+
+  <main class="tbody">
+  <section id="tab-chat" class="tab on">
+      <div class="win">
+        <div class="winbar"><span id="winTitle">C:\ГОВОРУН\> подключение к каналу</span>
+          <span class="rowbtns"><button class="tbtn sm" id="leaveBtn" hidden>✕ отбой</button>
+          <span class="winbtns">▁ ▢ ✕</span></span></div>
+        <div id="joinBox" class="joinbox">
+          <p class="pr">ваше имя:</p>
+          <input id="nameInput" maxlength="20" placeholder="оператор" autocomplete="off">
+          <p class="pr">код канала:</p>
+          <input id="codeInput" maxlength="12" placeholder="код от собеседника" autocomplete="off">
+          <button class="tbtn wide" id="joinBtn">▶ выйти на связь</button>
+          <p class="hint">// введите с собеседником одинаковый код — связь идёт через публичное реле и работает между устройствами. Секреты шифруйте.</p>
+          <div id="quickRow" class="rowbtns"></div>
+        </div>
+        <div id="chatBox" hidden>
+          <div id="msgs" class="msgs"></div>
+          <div id="typing" class="tline"></div>
+          <div class="inrow">
+            <span class="prmt">&gt;&gt;</span>
+            <input id="msgInput" autocomplete="off" maxlength="2000">
+            <button class="tbtn" id="sendBtn">↵ отправить</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-snake" class="tab">
+      <div class="win">
+        <div class="winbar"><span>C:\ГОВОРУН\> ЗМЕЙКА.EXE</span><span class="winbtns">▁ ▢ ✕</span></div>
+        <div class="pad">
+          <div class="rowbtns">
+            <span class="dim">счёт:</span><span id="snScore" class="bigsm">0000</span>
+            <span class="dim" style="margin-left:12px">рекорд:</span><span id="snBest" class="bigsm">0000</span>
+            <button class="tbtn sm" id="snPause" hidden style="margin-left:auto">⏸ пауза</button>
+          </div>
+          <canvas id="snCv"></canvas>
+          <div id="snMsg" class="dim">// нажмите «пуск» или проведите пальцем по полю</div>
+          <div class="snpad">
+            <button class="tbtn snbtn" data-d="up" style="grid-column:2">▲</button>
+            <button class="tbtn snbtn" data-d="left">◀</button>
+            <button class="tbtn snbtn" data-d="down">▼</button>
+            <button class="tbtn snbtn" data-d="right">▶</button>
+          </div>
+          <button class="tbtn wide" id="snStart">▶ пуск</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-cipher" class="tab">
+      <div class="cols">
+        <div class="win">
+          <div class="winbar">фото → текст · шифрование</div>
+          <div class="pad">
+            <input type="file" id="fileInput" accept="image/*" hidden>
+            <button class="tbtn wide" id="pickBtn">▣ выбрать фото</button>
+            <div id="fileInfo" class="dim">// фото не выбрано</div>
+            <p class="pr">ключ (пароль):</p>
+            <input type="password" id="encPass" placeholder="········">
+            <button class="tbtn wide" id="doEncrypt">▶ зашифровать</button>
+            <textarea id="encOut" readonly placeholder="здесь появится зашифрованный текст…"></textarea>
+            <div id="encStats" class="dim">// AES-256-GCM · PBKDF2 · 150 000 итераций</div>
+            <div class="rowbtns">
+              <button class="tbtn" id="copyEnc">⧉ копировать</button>
+              <button class="tbtn" id="toChat">▶ в чат</button>
+            </div>
+          </div>
+        </div>
+        <div class="win">
+          <div class="winbar">текст → фото · расшифровка</div>
+          <div class="pad">
+            <p class="pr">зашифрованный текст:</p>
+            <textarea id="decIn" placeholder="вставьте текст PZV1:…"></textarea>
+            <p class="pr">ключ:</p>
+            <input type="password" id="decPass" placeholder="········">
+            <button class="tbtn wide" id="doDecrypt">▶ расшифровать</button>
+            <div id="decOut"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="tab-settings" class="tab">
+      <div class="cols">
+        <div class="win">
+          <div class="winbar">цвет люминофора</div>
+          <div class="pad themes" id="themeRow">
+            <button data-th="green" class="thbtn">зелёный</button>
+            <button data-th="amber" class="thbtn">янтарь</button>
+            <button data-th="cyan" class="thbtn">циан</button>
+            <button data-th="white" class="thbtn">белый</button>
+          </div>
+        </div>
+        <div class="win">
+          <div class="winbar">параметры</div>
+          <div class="pad">
+            <p class="pr">имя оператора:</p>
+            <div class="rowbtns"><input id="setName" maxlength="20"><button class="tbtn" id="saveName">OK</button></div>
+            <label class="chk"><input type="checkbox" id="optScan"> CRT-сканлайны</label>
+            <label class="chk"><input type="checkbox" id="optGlow"> свечение люминофора</label>
+            <label class="chk"><input type="checkbox" id="optSnd"> звуковые сигналы</label>
+          </div>
+        </div>
+        <div class="win">
+          <div class="winbar">сервис</div>
+          <div class="pad">
+            <button class="tbtn wide" id="clearHist">✕ очистить историю канала</button>
+            <button class="tbtn wide danger" id="wipeAll">✕ полный сброс (все данные)</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-codes" class="tab">
+      <div class="cols">
+        <div class="win">
+          <div class="winbar">ваш код</div>
+          <div class="pad">
+            <div id="myCode" class="bigcode">·······</div>
+            <div class="dim">// код вашего текущего канала — сообщите его собеседнику</div>
+            <button class="tbtn" id="copyMy">⧉ скопировать код</button>
+          </div>
+        </div>
+        <div class="win">
+          <div class="winbar">новый чат</div>
+          <div class="pad">
+            <button class="tbtn wide" id="genCode">⚄ сгенерировать новый код</button>
+            <div id="genOut" class="bigcode dim">—</div>
+            <button class="tbtn wide" id="createChat">▶ создать чат с этим кодом</button>
+          </div>
+        </div>
+        <div class="win">
+          <div class="winbar">подключение по коду</div>
+          <div class="pad">
+            <p class="pr">код:</p>
+            <input id="joinCode" maxlength="12" placeholder="существующий код">
+            <button class="tbtn wide" id="joinCodeBtn">▶ подключиться</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-contacts" class="tab">
+      <div class="win">
+        <div class="winbar">список контактов</div>
+        <div class="pad">
+          <div class="rowbtns">
+            <input id="cName" maxlength="20" placeholder="имя">
+            <input id="cCode" maxlength="12" placeholder="код">
+            <button class="tbtn" id="cAdd">+ записать</button>
+          </div>
+          <div id="contactList" class="clist"></div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+  <footer class="tfoot"><span id="footL">> готов</span><span id="footR"></span></footer>
+</div>
+<div id="toasts"></div>
+
+<script>
+/* ═══ утилиты ═══ */
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad=n=>String(n).padStart(2,'0');
+const t3=ts=>{const d=new Date(ts);return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`};
+function toast(msg,type=''){const t=document.createElement('div');t.className='toast '+type;t.textContent=msg;
+ $('#toasts').appendChild(t);setTimeout(()=>t.remove(),2600);}
+function copyText(t){if(navigator.clipboard&&window.isSecureContext)return navigator.clipboard.writeText(t);
+ const ta=document.createElement('textarea');ta.value=t;ta.style.cssText='position:fixed;opacity:0';
+ document.body.appendChild(ta);ta.select();try{document.execCommand('copy')}catch(e){}ta.remove();return Promise.resolve();}
+function bufToB64(b){const u=new Uint8Array(b);let s='';
+ for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s);}
+function b64ToBuf(b){const s=atob(b),u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u;}
+
+/* ═══ настройки ═══ */
+let cfg={theme:'green',scan:true,glow:true,snd:true};
+try{Object.assign(cfg,JSON.parse(localStorage.getItem('gvn_cfg')||'{}'))}catch(e){}
+const saveCfg=()=>localStorage.setItem('gvn_cfg',JSON.stringify(cfg));
+let ac;
+function beep(f=740,d=.07){if(!cfg.snd)return;
+ try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+ const o=ac.createOscillator(),g=ac.createGain();o.type='square';o.frequency.value=f;g.gain.value=.03;
+ o.connect(g);g.connect(ac.destination);o.start();
+ g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+d);o.stop(ac.currentTime+d);}catch(e){}}
+function applyCfg(){
+ document.documentElement.dataset.theme=cfg.theme;
+ document.body.classList.toggle('noscan',!cfg.scan);
+ document.body.classList.toggle('glow',cfg.glow);
+ $$('#themeRow .thbtn').forEach(b=>b.classList.toggle('on',b.dataset.th===cfg.theme));
+ $('#optScan').checked=cfg.scan;$('#optGlow').checked=cfg.glow;$('#optSnd').checked=cfg.snd;}
+$$('#themeRow .thbtn').forEach(b=>b.onclick=()=>{cfg.theme=b.dataset.th;saveCfg();applyCfg();beep(880);});
+$('#optScan').onchange=e=>{cfg.scan=e.target.checked;saveCfg();applyCfg();};
+$('#optGlow').onchange=e=>{cfg.glow=e.target.checked;saveCfg();applyCfg();};
+$('#optSnd').onchange=e=>{cfg.snd=e.target.checked;saveCfg();toast(cfg.snd?'звук: вкл':'звук: выкл');};
+
+/* ═══ вкладки ═══ */
+function showTab(n){$$('.ttabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===n));
+ $$('.tab').forEach(t=>t.classList.toggle('on',t.id==='tab-'+n));}
+$$('.ttabs button').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+
+/* ═══ часы и статус ═══ */
+function tickClock(){const d=new Date();$('#clock').textContent=t3(d.getTime());
+ $('#footR').textContent=d.toLocaleDateString('ru-RU');}
+setInterval(tickClock,1000);tickClock();
+function foot(t){$('#footL').textContent='> '+t;}
+function statusOn(c){$('#statusTxt').textContent='в эфире · '+c;$('#statusDot').classList.remove('off');}
+function statusOff(){$('#statusTxt').textContent='линия свободна';$('#statusDot').classList.add('off');}
+/* ═══ криптография ═══ */
+const ENC_PREFIX='PZV1:';
+async function deriveKey(pass,salt){
+ const base=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveKey']);
+ return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:150000,hash:'SHA-256'},base,
+  {name:'AES-GCM',length:256},false,['encrypt','decrypt']);}
+async function encryptText(text,pass){
+ const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));
+ const key=await deriveKey(pass,salt);
+ const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},key,new TextEncoder().encode(text));
+ const all=new Uint8Array(28+ct.byteLength);all.set(salt,0);all.set(iv,16);all.set(new Uint8Array(ct),28);
+ return bufToB64(all);}
+async function decryptB64(b64,pass){
+ const all=b64ToBuf(b64),salt=all.slice(0,16),iv=all.slice(16,28),ct=all.slice(28);
+ const key=await deriveKey(pass,salt);
+ const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv},key,ct);
+ return new TextDecoder().decode(pt);}
+
+/* ═══ вкладка «коды» ═══ */
+function genCodeStr(){const A='ABCDEFGHJKMNPQRSTUVWXYZ23456789';let s='';
+ for(let i=0;i<4;i++)s+=A[Math.floor(Math.random()*A.length)];
+ return s+'-'+Math.floor(100+Math.random()*900);}
+function refreshMyCode(){$('#myCode').textContent=room||localStorage.getItem('gvn_last')||'·······';}
+function enterChannel(code){
+ code=code.toUpperCase().replace(/\s+/g,'');
+ if(code.length<3)return toast('код слишком короткий','err');
+ if(!me){$('#codeInput').value=code;showTab('chat');$('#nameInput').focus();
+  return toast('сначала введите имя','err');}
+ $('#codeInput').value=code;join(code);showTab('chat');}
+$('#genCode').onclick=()=>{const c=genCodeStr();$('#genOut').textContent=c;
+ $('#genOut').classList.remove('dim');beep(700);};
+$('#createChat').onclick=()=>{const c=$('#genOut').textContent;
+ if(!c||c==='—')return toast('сначала сгенерируйте код','err');enterChannel(c);};
+$('#joinCodeBtn').onclick=()=>{const c=$('#joinCode').value.trim();
+ if(!c)return toast('введите код','err');enterChannel(c);};
+$('#copyMy').onclick=()=>{const c=room||localStorage.getItem('gvn_last')||'';
+ if(!c)return toast('кода пока нет','err');copyText(c).then(()=>toast('код скопирован'));};
+
+/* ═══ контакты ═══ */
+let contacts=[];try{contacts=JSON.parse(localStorage.getItem('gvn_contacts')||'[]')}catch(e){}
+const saveC=()=>localStorage.setItem('gvn_contacts',JSON.stringify(contacts));
+function renderContacts(){const L=$('#contactList');
+ if(!contacts.length){L.innerHTML='<div class="dim">// пусто — запишите первый контакт</div>';return}
+ L.innerHTML='';
+ contacts.forEach((c,i)=>{const el=document.createElement('div');el.className='crow';
+  el.innerHTML=`<span class="cname">${esc(c.name)}</span><span class="leader"></span><span class="ccode">${esc(c.code)}</span>`;
+  const call=document.createElement('button');call.className='tbtn sm';call.textContent='вызов';
+  const del=document.createElement('button');del.className='tbtn sm';del.textContent='✕';
+  call.onclick=()=>enterChannel(c.code);
+  del.onclick=()=>{contacts.splice(i,1);saveC();renderContacts();renderQuick();toast('удалено');};
+  el.append(call,del);L.appendChild(el);});}
+function renderQuick(){const codes=[...new Set(contacts.map(c=>c.code))].slice(0,6),q=$('#quickRow');
+ q.innerHTML='';if(!codes.length)return;
+ const p=document.createElement('p');p.className='pr';p.style.width='100%';p.textContent='быстро из книжки:';
+ q.appendChild(p);
+ codes.forEach(c=>{const b=document.createElement('button');b.className='tbtn sm';b.textContent=c;
+  b.onclick=()=>{$('#codeInput').value=c;join(c);};q.appendChild(b);});}
+$('#cAdd').onclick=()=>{const n=$('#cName').value.trim(),c=$('#cCode').value.trim().toUpperCase();
+ if(!n||c.length<3)return toast('нужны имя и код','err');
+ if(contacts.some(x=>x.name===n&&x.code===c))return toast('уже записано','err');
+ contacts.push({name:n,code:c});saveC();renderContacts();renderQuick();
+ $('#cName').value='';$('#cCode').value='';toast('записано: '+n+' · '+c);beep(880);};
+ /* ═══ чат ═══ */
+let mq=null,mqTopic='';
+const partBuf={};
+function relay(d){ // сообщение уходит и в соседние вкладки, и на реле
+ if(bc)try{bc.postMessage(d)}catch(e){}
+ if(mq&&mq.connected)try{
+  const s=JSON.stringify(d);
+  if(s.length<48000)mq.publish(mqTopic,s);
+  else{const id=Date.now()+'-'+Math.random().toString(16).slice(2,8),CH=48000,n=Math.ceil(s.length/CH);
+   for(let i=0;i<n;i++)mq.publish(mqTopic,JSON.stringify({t:'part',id,i,n,txt:s.substr(i*CH,CH)}));}
+ }catch(e){}}
+function connectMq(code){
+ if(typeof mqtt==='undefined')return;
+ mqTopic='gvn/'+code;
+ try{mq=mqtt.connect('wss://broker.emqx.io:8084/mqtt',{
+  clientId:'gvn-'+Date.now()+'-'+Math.random().toString(16).slice(2,8),
+  keepalive:20,reconnectPeriod:3000,connectTimeout:8000,
+  will:{topic:mqTopic,payload:JSON.stringify({t:'bye',name:me})}});}catch(e){mq=null;return}
+ mq.on('connect',()=>{try{mq.subscribe(mqTopic);mq.publish(mqTopic,JSON.stringify({t:'hello',name:me}))}catch(e){}
+  toast('реле подключено: связь между устройствами активна');});
+ mq.on('message',(t,p)=>{try{onPeer(JSON.parse(p.toString()))}catch(e){}});
+ mq.on('error',()=>{});
+ mq.on('close',()=>{if(room)foot('в эфире: реле переподключается…');});}
+
+const HAS_BC='BroadcastChannel' in window;
+let me=localStorage.getItem('gvn_name')||'',room=null,bc=null,peers={},seen=new Set(),hb=null;
+const histKey=c=>'gvn_hist_'+c;
+const loadH=c=>{try{return JSON.parse(localStorage.getItem(histKey(c)))||[]}catch(e){return[]}};
+const saveH=(c,a)=>{try{localStorage.setItem(histKey(c),JSON.stringify(a.slice(-200)))}catch(e){}};
+function scrollB(){const b=$('#msgs');b.scrollTop=b.scrollHeight;}
+function sysLine(t){const el=document.createElement('div');el.className='mline';
+ el.innerHTML=`<span class="ts">[${t3(Date.now())}]</span> <span class="sysx">── ${esc(t)}</span>`;
+ $('#msgs').appendChild(el);scrollB();}
+function updTitle(){$('#winTitle').textContent=room
+ ?`C:\\ГОВОРУН\\> ЧАТ_${room}`:'C:\\ГОВОРУН\\> подключение к каналу';}
+function updPresence(){
+ const names=[me,...Object.entries(peers).filter(([,t])=>Date.now()-t<8000).map(([n])=>n)];
+ const u=[...new Set(names)];
+ foot(u.length>1?'в эфире: '+u.join(', '):'в эфире: только вы');}
+function join(code){
+ code=(code||'').trim().toUpperCase().replace(/\s+/g,'');
+ const name=$('#nameInput').value.trim()||me;
+ if(!name){toast('введите имя','err');$('#nameInput').focus();return}
+ if(code.length<3){toast('код — минимум 3 символа','err');return}
+ me=name;localStorage.setItem('gvn_name',me);localStorage.setItem('gvn_last',code);
+ leave(true);
+ room=code;peers={};$('#msgs').innerHTML='';
+ if(HAS_BC){bc=new BroadcastChannel('gvn-'+code);bc.onmessage=e=>onPeer(e.data);}
+ loadH(room).forEach(m=>{seen.add(m.id);renderMsg(m);});
+ $('#joinBox').hidden=true;$('#chatBox').hidden=false;$('#leaveBtn').hidden=false;
+ updTitle();statusOn(code);refreshMyCode();
+ sysLine('соединение установлено · канал '+code);
+ relay({t:'hello',name:me});connectMq(code);
+ hb=setInterval(()=>{relay({t:'ping',name:me});updPresence();},3000);
+ updPresence();$('#msgInput').focus();}
+function leave(silent){
+ if(!silent)relay({t:'bye',name:me});
+ if(mq){try{mq.end(true)}catch(e){}mq=null;}
+ if(bc){try{bc.close()}catch(e){}bc=null;}
+ clearInterval(hb);hb=null;room=null;peers={};}
+$('#leaveBtn').onclick=()=>{leave(false);
+ $('#chatBox').hidden=true;$('#joinBox').hidden=false;$('#leaveBtn').hidden=true;
+ statusOff();updTitle();refreshMyCode();foot('готов — введите код и выйдите на связь');
+ toast('вы покинули канал');};
+function onPeer(d){if(!room)return;
+ if(d.t==='part'){const b=partBuf[d.id]||(partBuf[d.id]={n:d.n,got:[]});
+  b.got[d.i]=d.txt;
+  if(b.got.filter(Boolean).length===b.n){const s=b.got.join('');delete partBuf[d.id];
+   try{onPeer(JSON.parse(s))}catch(e){}}
+  return;}
+ if(d.t==='msg'){if(seen.has(d.m.id))return;seen.add(d.m.id);
+  const h=loadH(room);h.push(d.m);saveH(room,h);renderMsg(d.m);beep(520,.09);}
+ else if(d.t==='hello'){peers[d.name]=Date.now();
+  if(d.name!==me)relay({t:'ping',name:me});
+  if(!seen.has('h'+d.name)&&d.name!==me){seen.add('h'+d.name);sysLine(d.name+' подключился');beep(880);}}
+ else if(d.t==='ping')peers[d.name]=Date.now();
+ else if(d.t==='bye'){if(peers[d.name]){delete peers[d.name];sysLine(d.name+' отключился');}}
+ else if(d.t==='typing'){if(d.name!==me)showTyping(d.name);}
+ updPresence();}
+ function renderMsg(m){
+ const box=$('#msgs'),own=m.name===me,d=document.createElement('div');
+ d.className='mline';
+ if(m.text.startsWith(ENC_PREFIX)){
+  const p=m.text.slice(ENC_PREFIX.length);
+  d.innerHTML=`<span class="ts">[${t3(m.ts)}]</span> <span class="nm${own?' self':''}">${esc(m.name)}</span> &gt; ══ ЗАШИФРОВАННОЕ ФОТО (${p.length.toLocaleString('ru-RU')} симв.) ══`;
+  const r=document.createElement('div');r.className='encrow';r.dataset.p=p;
+  r.innerHTML='<input type="password" placeholder="ключ"><button class="tbtn sm">▶ открыть</button><span class="eres dim"></span>';
+  const inp=r.querySelector('input'),bt=r.querySelector('button'),res=r.querySelector('.eres');
+  const open=async()=>{if(!inp.value)return;bt.disabled=true;
+   try{const du=await decryptB64(r.dataset.p.replace(/\s+/g,''),inp.value);
+    if(!du.startsWith('data:image'))throw 0;
+    const ext=((du.match(/^data:image\/(\w+)/)||[])[1]||'png').replace('jpeg','jpg');
+    res.innerHTML=`<br><img src="${du}" alt=""><br><a class="dl" download="photo.${ext}" href="${du}">⭳ скачать фото</a>`;
+    inp.disabled=true;bt.hidden=true;beep(980);
+   }catch(e){res.textContent=' ✕ неверный ключ';res.className='eres enc-err';}
+   bt.disabled=false;};
+  bt.onclick=open;inp.onkeydown=e=>{if(e.key==='Enter')open()};
+  d.appendChild(r);
+ }else{
+  d.innerHTML=`<span class="ts">[${t3(m.ts)}]</span> <span class="nm${own?' self':''}">${esc(m.name)}</span> &gt; <span class="tx">${esc(m.text)}</span>`;
+ }
+ box.appendChild(d);scrollB();}
+function sendMsg(text){text=text.trim();if(!text||!room)return;
+ const m={id:Date.now()+'-'+Math.random().toString(36).slice(2,7),name:me,text,ts:Date.now()};
+ const h=loadH(room);h.push(m);saveH(room,h);seen.add(m.id);renderMsg(m);
+ relay({t:'msg',m});}
+let lastT=0,typT;
+function showTyping(n){$('#typing').textContent='… '+n+' печатает';
+ clearTimeout(typT);typT=setTimeout(()=>$('#typing').textContent='',2500);}
+$('#msgInput').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();
+ const v=$('#msgInput').value;$('#msgInput').value='';sendMsg(v);}});
+$('#msgInput').addEventListener('input',()=>{if(!bc&&!(mq&&mq.connected))return;const n=Date.now();
+ if(n-lastT>1200){lastT=n;relay({t:'typing',name:me});}});
+$('#sendBtn').onclick=()=>{const v=$('#msgInput').value;$('#msgInput').value='';sendMsg(v);};
+$('#joinBtn').onclick=()=>join($('#codeInput').value);
+$('#codeInput').addEventListener('keydown',e=>{if(e.key==='Enter')join($('#codeInput').value);});
+$('#codeInput').addEventListener('input',function(){this.value=this.value.toUpperCase()});
+window.addEventListener('storage',e=>{
+ if(!room||HAS_BC||e.key!==histKey(room))return;
+ loadH(room).forEach(m=>{if(!seen.has(m.id)){seen.add(m.id);renderMsg(m);beep(520,.09);}});});
+window.addEventListener('beforeunload',()=>{if(room)relay({t:'bye',name:me});if(mq)try{mq.end(true)}catch(e){}});
+
+/* ═══ шифр фото ═══ */
+let encData=null;
+$('#pickBtn').onclick=()=>$('#fileInput').click();
+$('#fileInput').onchange=e=>e.target.files[0]&&handleFile(e.target.files[0]);
+async function handleFile(f){
+ if(!f.type.startsWith('image/'))return toast('это не изображение','err');
+ const url=URL.createObjectURL(f),img=new Image();
+ await new Promise((r,j)=>{img.onload=r;img.onerror=j;img.src=url});
+ const MAX=800,k=Math.min(1,MAX/Math.max(img.width,img.height)),
+  w=Math.round(img.width*k),h=Math.round(img.height*k);
+ const c=document.createElement('canvas');c.width=w;c.height=h;
+ c.getContext('2d').drawImage(img,0,0,w,h);
+ const du=(f.type==='image/png'&&f.size<300000)?c.toDataURL('image/png'):c.toDataURL('image/jpeg',.8);
+ encData={du};
+ $('#fileInfo').textContent=`// ${f.name} · ${w}×${h} · готово к шифрованию`;
+ URL.revokeObjectURL(url);}
+$('#doEncrypt').onclick=async function(){
+ if(!encData)return toast('сначала выберите фото','err');
+ const p=$('#encPass').value;
+ if(p.length<3)return toast('ключ — минимум 3 символа','err');
+ if(!crypto.subtle)return toast('шифрование недоступно (нужен https)','err');
+ this.disabled=true;this.textContent='… шифрование';
+ try{const out=ENC_PREFIX+await encryptText(encData.du,p);
+  $('#encOut').value=out;
+  $('#encStats').textContent='// '+out.length.toLocaleString('ru-RU')+' символов · без ключа не прочитать';
+  beep(900);toast('фото зашифровано в текст');
+ }catch(e){toast('ошибка шифрования','err');}
+ this.disabled=false;this.textContent='▶ зашифровать';};
+$('#copyEnc').onclick=async()=>{const v=$('#encOut').value;
+ if(!v)return toast('нечего копировать','err');
+ await copyText(v);toast('текст скопирован');};
+$('#toChat').onclick=()=>{const v=$('#encOut').value;
+ if(!v)return toast('сначала зашифруйте','err');
+ if(!room){showTab('chat');return toast('сначала выйдите на связь','err');}
+ sendMsg(v);showTab('chat');toast('фото ушло в эфир текстом');};
+$('#doDecrypt').onclick=async function(){
+ let t=$('#decIn').value.trim();const p=$('#decPass').value;
+ if(!t||!p)return toast('нужны и текст, и ключ','err');
+ if(t.includes(ENC_PREFIX))t=t.split(ENC_PREFIX).slice(1).join('');
+ this.disabled=true;this.textContent='… расшифровка';
+ try{const du=await decryptB64(t.replace(/\s+/g,''),p);
+  if(!du.startsWith('data:image'))throw 0;
+  const ext=((du.match(/^data:image\/(\w+)/)||[])[1]||'png').replace('jpeg','jpg');
+  $('#decOut').innerHTML=`<img src="${du}" alt="" style="max-width:100%;border:1px solid rgba(var(--rgb),.4)"><br>
+   <a class="dl" download="photo.${ext}" href="${du}">⭳ скачать фото</a>`;
+  beep(980);toast('фото расшифровано');
+ }catch(e){toast('неверный ключ или данные повреждены','err');}
+ this.disabled=false;this.textContent='▶ расшифровать';};
+ /* ═══ сервис ═══ */
+$('#saveName').onclick=()=>{const n=$('#setName').value.trim();
+ if(!n)return toast('имя не может быть пустым','err');
+ me=n;localStorage.setItem('gvn_name',me);$('#nameInput').value=me;
+ toast('имя сохранено: '+me);};
+$('#clearHist').onclick=()=>{
+ if(!room)return toast('нет активного канала','err');
+ if(!confirm('Очистить историю канала '+room+'?'))return;
+ localStorage.removeItem(histKey(room));$('#msgs').innerHTML='';seen=new Set();
+ sysLine('история очищена');toast('очищено');};
+$('#wipeAll').onclick=()=>{
+ if(!confirm('Полный сброс: удалятся все чаты, контакты и настройки. Продолжить?'))return;
+ localStorage.clear();location.reload();};
+
+/* ═══ змейка ═══ */
+const snCv=$('#snCv'),sg=snCv.getContext('2d');
+const COLS=20,ROWS=20,CELL=20;
+snCv.width=COLS*CELL;snCv.height=ROWS*CELL;
+let snake,dir,ndir,food,score=0,best=+(localStorage.getItem('gvn_best')||0),
+ snOn=false,snPaused=false,snTimer=null,spd=160;
+$('#snBest').textContent=String(best).padStart(4,'0');
+function snReset(){snake=[{x:9,y:10},{x:8,y:10},{x:7,y:10}];dir={x:1,y:0};ndir=dir;
+ score=0;spd=160;$('#snScore').textContent='0000';placeFood();}
+function placeFood(){do{food={x:Math.floor(Math.random()*COLS),y:Math.floor(Math.random()*ROWS)};}
+ while(snake.some(s=>s.x===food.x&&s.y===food.y));}
+function snTick(){
+ if(snPaused)return;
+ dir=ndir;
+ const h={x:snake[0].x+dir.x,y:snake[0].y+dir.y};
+ if(h.x<0||h.x>=COLS||h.y<0||h.y>=ROWS||snake.some(s=>s.x===h.x&&s.y===h.y)){snGameOver();return}
+ snake.unshift(h);
+ if(h.x===food.x&&h.y===food.y){score++;
+  $('#snScore').textContent=String(score).padStart(4,'0');
+  beep(880,.05);if(spd>70)spd-=3;placeFood();
+  clearInterval(snTimer);snTimer=setInterval(snTick,spd);}
+ else snake.pop();
+ snDraw();}
+function snDraw(){
+ const ph=getComputedStyle(document.documentElement).getPropertyValue('--rgb').trim();
+ sg.clearRect(0,0,snCv.width,snCv.height);
+ sg.strokeStyle=`rgba(${ph},.07)`;sg.lineWidth=1;
+ for(let i=1;i<COLS;i++){sg.beginPath();sg.moveTo(i*CELL,0);sg.lineTo(i*CELL,ROWS*CELL);sg.stroke();}
+ for(let i=1;i<ROWS;i++){sg.beginPath();sg.moveTo(0,i*CELL);sg.lineTo(COLS*CELL,i*CELL);sg.stroke();}
+ sg.fillStyle=`rgba(${ph},.95)`;
+ sg.fillRect(food.x*CELL+5,food.y*CELL+5,CELL-10,CELL-10);
+ snake.forEach((s,i)=>{sg.fillStyle=i===0?`rgb(${ph})`:`rgba(${ph},${Math.max(.25,.85-i*.04)})`;
+  sg.fillRect(s.x*CELL+1,s.y*CELL+1,CELL-2,CELL-2);});
+ if(!snOn){sg.fillStyle=`rgba(${ph},.9)`;sg.font='700 16px "IBM Plex Mono",monospace';sg.textAlign='center';
+  sg.fillText(snPaused?'ПАУЗА':'НАЖМИТЕ ПУСК',snCv.width/2,snCv.height/2);}}
+function snGameOver(){snOn=false;clearInterval(snTimer);beep(180,.3);
+ if(score>best){best=score;localStorage.setItem('gvn_best',best);
+  $('#snBest').textContent=String(best).padStart(4,'0');}
+ $('#snMsg').textContent=`// конец игры · счёт ${score} · нажмите «пуск»`;
+ $('#snStart').textContent='▶ заново';$('#snPause').hidden=true;snDraw();}
+function snDir(d){const map={up:{x:0,y:-1},down:{x:0,y:1},left:{x:-1,y:0},right:{x:1,y:0}};
+ const n=map[d];if(!n)return;if(snOn&&n.x===-dir.x&&n.y===-dir.y)return;ndir=n;}
+$('#snStart').onclick=()=>{snReset();snOn=true;snPaused=false;
+ $('#snMsg').textContent='// управление: свайп / кнопки / стрелки · стены смертельны';
+ $('#snStart').textContent='⟳ заново';$('#snPause').hidden=false;$('#snPause').textContent='⏸ пауза';
+ clearInterval(snTimer);snTimer=setInterval(snTick,spd);snDraw();};
+$('#snPause').onclick=function(){if(!snOn)return;snPaused=!snPaused;
+ this.textContent=snPaused?'▶ продолжить':'⏸ пауза';snDraw();};
+$$('.snbtn').forEach(b=>b.onclick=()=>{if(!snOn)$('#snStart').click();snDir(b.dataset.d);});
+document.addEventListener('keydown',e=>{
+ const a=document.activeElement;
+ if(a&&/INPUT|TEXTAREA/.test(a.tagName))return;
+ const k={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',
+  w:'up',s:'down',a:'left',d:'right',ц:'up',ы:'down',ф:'left',в:'right'}[e.key];
+ if(k){e.preventDefault();if(!snOn)$('#snStart').click();snDir(k);}});
+let sx=0,sy=0;
+snCv.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;},{passive:true});
+snCv.addEventListener('touchend',e=>{const t=e.changedTouches[0];
+ const dx=t.clientX-sx,dy=t.clientY-sy;
+ if(Math.abs(dx)<24&&Math.abs(dy)<24){if(!snOn)$('#snStart').click();return}
+ if(!snOn)$('#snStart').click();
+ if(Math.abs(dx)>Math.abs(dy))snDir(dx>0?'right':'left');else snDir(dy>0?'down':'up');});
+snReset();snDraw();
+
+/* ═══ старт ═══ */
+applyCfg();
+$('#nameInput').value=me;$('#setName').value=me;
+renderContacts();renderQuick();refreshMyCode();
+showTab('chat');statusOff();
+foot('ГОВОРУН готов — введите код и выйдите на связь');
+</script>
+</body>
+</html>
